@@ -16,7 +16,6 @@ func getParsedWhois(domain string) (result whoisparser.WhoisInfo, err error) {
 	return
 }
 
-
 func buildKnownWhoisDb(verbose bool, knownDomainsList []string) []string {
 	var tokens []string
 
@@ -25,6 +24,7 @@ func buildKnownWhoisDb(verbose bool, knownDomainsList []string) []string {
 		if verbose {
 			fmt.Printf("  + Known seed domain: %s\n",knownDomain)
 		}
+		
 		whoisParsedData,_ := getParsedWhois(knownDomain)
 
 		if whoisParsedData.Registrant != nil {
