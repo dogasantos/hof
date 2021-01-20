@@ -24,7 +24,7 @@ func showBanner() {
 
 func main() {	
 	gpath := os.Getenv("GOPATH")
-	ProjectDir := "/src/githuib.com/dogasantos/host-owner-filter/"
+	ProjectDir := "/src/githuib.com/dogasantos/hof/"
 	soaKbFile := "soakb.json"
 	defaultConfig := gpath + ProjectDir + soaKbFile
 	

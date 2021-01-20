@@ -25,7 +25,8 @@ func Process(options *Options) {
 
 	bytesRead, _ := ioutil.ReadFile(options.Hosts)
 	file_content := string(bytesRead)
-	hosts := strings.Split(file_content, "\n")
+	h := strings.Split(file_content, "\n")
+	hosts := sliceUniqueElements(h)
 	
 	bR, _ := ioutil.ReadFile(options.Domainf)
 	fc := string(bR)
@@ -37,14 +38,33 @@ func Process(options *Options) {
 		fmt.Printf("[*] Target hosts loaded: %d\n",len(hosts))
 	}
 	
-	fmt.Println("[*] Comparing data")
+	fmt.Println("[*] Direct sub match")
 	for _, knownDomain = range knownDomains {
 		for _, hostname = range hosts {
-			if len(hostname) > 2 {
+			if sliceContainsElement(found, hostname) == false {
+				if subVerify(knownDomain, hostname) ==  true {
+					if options.Verbose {
+						fmt.Printf("  + %s:SUB\n",hostname)
+					}
+					found = append(found, hostname)
+					continue
+				}
+			}
+		}
+	}
+	
+	if len(hosts) > len(found) { // we still have some hosts to check...
+		fmt.Printf("[*] Building SOA data for the remaining hosts\n")
+		soablacklist := loadSoaKb(options.SoaKbFile)
+		
+		knownSoaServers := buildKnownHostsSoaDb(options.Verbose,soablacklist,knownDomains)
+		 
+		for _, knownDomain = range knownDomains {
+			for _, hostname = range hosts {
 				if sliceContainsElement(found, hostname) == false {
-					if subVerify(knownDomain, hostname) ==  true {
+					if soaVerify(knownSoaServers, soablacklist,hostname) ==  true {
 						if options.Verbose {
-							fmt.Printf("  + %s:SUB\n",hostname)
+							fmt.Printf("  + %s:SOA\n",hostname)
 						}
 						found = append(found, hostname)
 						continue
@@ -53,30 +73,7 @@ func Process(options *Options) {
 			}
 		}
 	}
-
-	if len(hosts) > len(found) { // we still have some hosts to check...
-		fmt.Printf("[*] Building SOA data for the remaining hosts\n")
-		soablacklist := loadSoaKb(options.SoaKbFile)
-		
-		knownSoaServers := buildKnownHostsSoaDb(options.Verbose,soablacklist,knownDomains)
-		for _, knownDomain = range knownDomains {
-			for _, hostname = range hosts {
-				if len(hostname) > 2 {
-					if sliceContainsElement(found, hostname) == false {
-						
-						if soaVerify(knownSoaServers, soablacklist,hostname) ==  true {
-							if options.Verbose {
-								fmt.Printf("  + %s:SOA\n",hostname)
-							}
-							found = append(found, hostname)
-							continue
-						}
-					}
-				}
-			}
-		}
-	}
-
+	
 
 	if len(hosts) > len(found) { // we still have some hosts to check...
 		fmt.Printf("[*] Building whois data for the remaining hosts\n")
@@ -93,6 +90,7 @@ func Process(options *Options) {
 			}
 		}
 	}
+
 	fmt.Printf("[*] Found %d hosts\n",len(found))
 
 	

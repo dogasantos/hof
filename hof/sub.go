@@ -3,7 +3,8 @@ package hof
 func subVerify(knownDomain string, host string) bool {
 	var retval = false 
 	dt := ParseDomainTokens(host)
-	if dt.Domain == knownDomain {
+	kdt := ParseDomainTokens(knownDomain)
+	if dt.Domain == kdt.Domain {
 		retval = true
 	} 
 	return retval

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"strings"
 	"log"
+	"sync"
 )
 var DefaultResolvers = []string{
 	"1.1.1.1:53", // Cloudflare
@@ -62,22 +63,100 @@ func dnsGetSoaServers(hostname string, blacklistedsoa soaKb) []string {
 	}
 	return soa
 }
+func asyncDnsGetSoaServers(wg *sync.WaitGroup, msg chan string, verbose bool, buffer []string, blacklistedsoa soaKb) {
+	defer wg.Done()
+	var nbuffer []string
 
-func buildKnownHostsSoaDb(verbose bool,blacklistedsoa soaKb, knownDomainsList []string) []string {
-	var knownSoaHosts []string
-
-	fmt.Println("[*] Collecting SOA hosts")
-	for _, knownDomain := range knownDomainsList {
-		if verbose {
-			fmt.Printf("  + Known seed domain: %s\n",knownDomain)
-		}
-		soahosts := dnsGetSoaServers(knownDomain, blacklistedsoa)
-		for _,soa := range soahosts {
-			knownSoaHosts = append(knownSoaHosts, soa)
+	for _,hostname := range buffer {
+		dnsClient := retryabledns.New(DefaultResolvers, 2)
+		dnsResponse, _ := dnsClient.Query(hostname, dns.TypeSOA)
+		s := strings.Split(dnsResponse.Raw,"SOA")
+		if len(s) == 3 {
+			s1 := s[2]									// just
+			s2 := strings.ReplaceAll(s1, "\t", "")    	// parsing
+			s3 := strings.ReplaceAll(s2, "\n", "")		// the soa
+			s4 := strings.ReplaceAll(s3, ". ", ":")		// response
+			s5 := strings.Split(s4, ":")				// here
+			for _,t := range s5 {						// we have 2 soa hosts on s5
+				if strings.Contains(t,".") {			// seems to be a valid fqdn
+					dtok := ParseDomainTokens(t)					
+					if sliceContainsElement(blacklistedsoa.Domains, dtok.Domain) == false {	// the soa domain is not among blacklisted domains, which is good
+						if sliceContainsElement(blacklistedsoa.Soa, t) == false {			// the soa fqdn host (t) is not blacklisted at all
+							nbuffer = append(nbuffer, t)
+							if verbose {
+								fmt.Printf("  + Found SOA server for %s: %s\n",hostname,t)
+							}
+						}
+					}
+				}
+			}
 		}
 	}
-	uniqueSoaHosts := sliceUniqueElements(knownSoaHosts)
-	return uniqueSoaHosts
+	for _,asoa := range nbuffer {
+		msg <- asoa
+	}
+	close(msg)
+}
+
+
+func buildKnownHostsSoaDb(verbose bool, blacklistedsoa soaKb, knownDomainsList []string) []string {
+	var buffer []string
+	var total []string
+	var diff = knownDomainsList
+	var soaServersFound []string
+	wg := new(sync.WaitGroup)
+
+
+	fmt.Println("[*] Collecting SOA hosts")
+	
+	for _, knownDomain := range knownDomainsList {
+		buffer = append(buffer, knownDomain)
+		
+		if len(buffer) == 10 {
+			if verbose {
+				fmt.Printf("  + Checking %d hosts batch\n",len(buffer))
+			}
+			channel := make(chan string)
+			wg.Add(1)
+
+			go asyncDnsGetSoaServers(wg, channel, verbose, buffer, blacklistedsoa)
+			for msg := range channel {
+				soaServersFound = append(soaServersFound,msg)
+			}
+
+			for _,a := range buffer{ 
+				total = append(total, a)
+			}
+			buffer = nil
+		}
+
+		diff = sliceDifference(total, knownDomainsList)
+
+		if len(diff) < 10 {
+			if verbose {
+				fmt.Printf("  + Checking %d hosts batch\n",len(diff))
+			}
+			channel := make(chan string)
+			wg.Add(1)
+			
+			go asyncDnsGetSoaServers(wg, channel, verbose, diff, blacklistedsoa)
+
+			for msg := range channel {
+				soaServersFound = append(soaServersFound,msg)
+			}
+			for _,a := range diff { 
+				total = append(total, a)
+			}
+			break
+		}
+
+	}
+	if verbose {
+		fmt.Printf("  + Total hosts verified (SOA): %d\n",len(total))
+		fmt.Printf("  + Total SOA servers found: %d\n",len(soaServersFound))
+	} 
+	wg.Wait()
+	return soaServersFound
 }
 
 func soaVerify(knownSoaHosts []string, blacklistedsoa soaKb, host string) bool {
