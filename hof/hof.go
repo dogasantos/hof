@@ -113,13 +113,14 @@ func Process(options *Options) {
 		wg.Wait()
 	}
 	
-	
+
 	remaining = sliceDifference(found,hosts)
 	if len(hosts) > len(found) { // we still have some hosts to check...
 		fmt.Printf("[*] Remaining hosts: %d\n",len(remaining))
 		fmt.Printf("[*] Building Whois tokens for %d known domains\n",len(knownDomains))
 
 		knownWhoisData := buildKnownWhoisDb(options.Verbose,knownDomains)
+		fmt.Println("[*] Verifying target hosts")
 		for _, h := range hosts {
 			if sliceContainsElement(found, h) == false {
 				if whoisVerify(knownWhoisData, h) ==  true {
