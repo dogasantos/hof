@@ -120,9 +120,9 @@ func buildKnownHostsSoaDb(verbose bool, blacklistedsoa soaKb, knownDomainsList [
 			wg.Add(1)
 
 			go asyncDnsGetSoaServers(wg, channel, verbose, buffer, blacklistedsoa)
-			for msg := range channel {
-				soaServersFound = append(soaServersFound,msg)
-			}
+			for msg := range channel {		// there is not mutch sense on handle the messages right after the routine start
+				soaServersFound = append(soaServersFound,msg)	// as this is a blocking thing
+			}													// but i'm learning... give me that
 
 			for _,a := range buffer{ 
 				total = append(total, a)
