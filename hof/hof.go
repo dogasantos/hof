@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"io/ioutil"
 	"strings"
+	"sync"
 )
 
 type Options struct {
@@ -22,6 +23,7 @@ func Process(options *Options) {
 	var found []string
 	var hostname string 
 	var knownDomain string
+	var remaining []string
 
 	bytesRead, _ := ioutil.ReadFile(options.Hosts)
 	file_content := string(bytesRead)
@@ -53,30 +55,69 @@ func Process(options *Options) {
 		}
 	}
 	
+	remaining = sliceDifference(found,hosts)
 	if len(hosts) > len(found) { // we still have some hosts to check...
-		fmt.Printf("[*] Building SOA data for the remaining hosts\n")
+		fmt.Printf("[*] Remaining hosts: \n",len(remaining))
+		fmt.Printf("[*] Building SOA data for %d known domains\n",len(knownDomains))
+
 		soablacklist := loadSoaKb(options.SoaKbFile)
 		
 		knownSoaServers := buildKnownHostsSoaDb(options.Verbose,soablacklist,knownDomains)
-		 
-		for _, knownDomain = range knownDomains {
-			for _, hostname = range hosts {
-				if sliceContainsElement(found, hostname) == false {
-					if soaVerify(knownSoaServers, soablacklist,hostname) ==  true {
-						if options.Verbose {
-							fmt.Printf("  + %s:SOA\n",hostname)
-						}
-						found = append(found, hostname)
-						continue
+		wg := new(sync.WaitGroup)
+		var total []string
+		var sbuffer []string
+		var diff = remaining
+		for _, hostname = range remaining {
+			if sliceContainsElement(found, hostname) == false {
+				sbuffer = append(sbuffer, hostname)
+				if len(sbuffer) == 10 {
+					if options.Verbose {
+						fmt.Printf("  + Checking %d hosts batch\n",len(sbuffer))
 					}
+					channel := make(chan string)
+					wg.Add(1)
+					go asyncSoaVerify(wg, channel, options.Verbose, knownSoaServers, soablacklist, sbuffer)
+					for msg := range channel {
+						found = append(found, msg)
+					}
+					for _,a := range sbuffer{ 
+						total = append(total, a)
+						}
+					sbuffer = nil
 				}
+				diff = sliceDifference(total, remaining)
+				if len(diff) < 10 && len(diff) > 0 {
+					if options.Verbose {
+						fmt.Printf("  + Checking %d hosts batch\n",len(diff))
+					}
+					channel := make(chan string)
+					wg.Add(1)
+						
+					go asyncSoaVerify(wg, channel, options.Verbose, knownSoaServers, soablacklist, sbuffer)
+
+					for msg := range channel {
+						found = append(found, msg)
+					}
+					for _,a := range diff { 
+						total = append(total, a)
+					}
+					break
+				}
+
 			}
 		}
+		if options.Verbose {
+			fmt.Printf("  + Total hosts verified: %d\n",len(total))
+			fmt.Printf("  + Total hosts found: %d\n",len(found))
+		}
+		wg.Wait()
 	}
 	
-
+	remaining = sliceDifference(found,hosts)
 	if len(hosts) > len(found) { // we still have some hosts to check...
-		fmt.Printf("[*] Building whois data for the remaining hosts\n")
+		fmt.Printf("[*] Remaining hosts: \n",len(remaining))
+		fmt.Printf("[*] Building Whois tokens for %d known domains\n",len(knownDomains))
+
 		knownWhoisData := buildKnownWhoisDb(options.Verbose,knownDomains)
 		for _, h := range hosts {
 			if sliceContainsElement(found, h) == false {

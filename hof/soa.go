@@ -114,7 +114,7 @@ func buildKnownHostsSoaDb(verbose bool, blacklistedsoa soaKb, knownDomainsList [
 		
 		if len(buffer) == 10 {
 			if verbose {
-				fmt.Printf("  + Checking %d hosts batch\n",len(buffer))
+				fmt.Printf("  + Building kb for %d hosts\n",len(buffer))
 			}
 			channel := make(chan string)
 			wg.Add(1)
@@ -132,9 +132,9 @@ func buildKnownHostsSoaDb(verbose bool, blacklistedsoa soaKb, knownDomainsList [
 
 		diff = sliceDifference(total, knownDomainsList)
 
-		if len(diff) < 10 {
+		if len(diff) < 10 && len(diff) > 0{
 			if verbose {
-				fmt.Printf("  + Checking %d hosts batch\n",len(diff))
+				fmt.Printf("  + Building kb for %d hosts\n",len(diff))
 			}
 			channel := make(chan string)
 			wg.Add(1)
@@ -152,9 +152,8 @@ func buildKnownHostsSoaDb(verbose bool, blacklistedsoa soaKb, knownDomainsList [
 
 	}
 	if verbose {
-		fmt.Printf("  + Total hosts verified (SOA): %d\n",len(total))
-		fmt.Printf("  + Total SOA servers found: %d\n",len(soaServersFound))
-	} 
+		fmt.Printf("  + Total SOA servers in this kb: %d\n",len(soaServersFound))
+	}
 	wg.Wait()
 	return soaServersFound
 }
@@ -169,4 +168,29 @@ func soaVerify(knownSoaHosts []string, blacklistedsoa soaKb, host string) bool {
 		}
 	}
 	return retval
+}
+
+
+
+func asyncSoaVerify(wg *sync.WaitGroup, msg chan string, verbose bool, knownSoaHosts []string, blacklistedsoa soaKb, buffer []string) {
+	defer wg.Done()
+	var nbuffer []string
+	
+	for _,hostname := range buffer {
+		targetSoa := dnsGetSoaServers(hostname, blacklistedsoa)
+		for _, soa := range targetSoa {
+			if sliceContainsElement(knownSoaHosts,soa) {
+				nbuffer = append(nbuffer,hostname)
+				if verbose {
+					fmt.Printf("  + %s:SOA\n",hostname)
+				}
+				break
+			}
+		}
+	}
+
+	for _,hf := range nbuffer {
+		msg <- hf
+	}
+	close(msg)
 }
